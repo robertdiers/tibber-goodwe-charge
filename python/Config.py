@@ -10,7 +10,7 @@ config = configparser.ConfigParser()
 def read():
     try:
         # read config
-        config.read('tibber-goodwe-loading.ini')
+        config.read('tibber-goodwe-charge.ini')
 
         values = {}
 

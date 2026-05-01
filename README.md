@@ -4,7 +4,7 @@ charge battery connected to Goodwe inverter (ET/BT/EH, no ES) based on tibber AP
 
 ### Defaults
 
-plaese check config in tibber_goodwe_charge.ini file, could be overridden by Docker env variables
+plaese check config in tibber-goodwe-charge.ini file, could be overridden by Docker env variables
 
 ### Tibber API
 

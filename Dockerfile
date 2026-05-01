@@ -9,7 +9,7 @@ RUN which python3
 
 # copy files
 COPY python /app/python
-COPY shell/tibber-goodwe-loading.sh /app/tibber-goodwe-loading.sh
+COPY shell/tibber-goodwe-charge.sh /app/tibber-goodwe-charge.sh
 COPY shell/entrypoint.sh /app/entrypoint.sh
 COPY shell/container_cron /etc/cron.d/container_cron
 
