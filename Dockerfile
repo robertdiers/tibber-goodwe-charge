@@ -2,7 +2,7 @@ FROM docker.io/ubuntu:24.04
 
 RUN apt update
 RUN apt -y upgrade
-RUN apt -y install cron python3 python3-dev python3-pip python3-requests
+RUN apt -y install cron python3 python3-pip python3-requests
 RUN pip install goodwe --break-system-packages
 
 RUN which python3
