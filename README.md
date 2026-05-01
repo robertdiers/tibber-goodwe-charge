@@ -1,6 +1,6 @@
-# tibber-goodwe-loading
+# tibber-goodwe-charge
 
-load battery connected to Goodwe inverter (ET/BT/EH, no ES) based on tibber API prices up to a defined soc limit
+charge battery connected to Goodwe inverter (ET/BT/EH, no ES) based on tibber API prices up to a defined soc limit
 
 ### Defaults
 
