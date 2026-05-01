@@ -1,0 +1,1 @@
+*/15 * * * * . $HOME/.profile; /app/tibber-goodwe-loading.sh > /proc/1/fd/1 2>/proc/1/fd/2
