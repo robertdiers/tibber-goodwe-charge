@@ -50,5 +50,5 @@ docker run -d --restart always \
   -e PRICE_START=0.23 \
   -e PRICE_STOP=0.26 \
   -e MONTHS=10,11,12,01,02,03 \
-  --name tibbergoodweloading ghcr.io/robertdiers/tibber-goodwe-loading:1.0.0
+  --name tibbergoodweloading ghcr.io/robertdiers/tibber-goodwe-charge:1.0.0
 ```
