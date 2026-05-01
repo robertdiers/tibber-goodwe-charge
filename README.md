@@ -4,7 +4,7 @@ charge battery connected to Goodwe inverter (ET/BT/EH, no ES) based on tibber AP
 
 ### Defaults
 
-plaese check config in tibber_goodwe_loading.ini file, could be overridden by Docker env variables
+plaese check config in tibber_goodwe_charge.ini file, could be overridden by Docker env variables
 
 ### Tibber API
 
@@ -35,9 +35,9 @@ Environment variables (all can be overridden):
 | BATTERY_SOC_STOP | SOC threshold to STOP charging (0.0-1.0) | 0.60 |
 | PRICE_START | Max price (EUR/kWh) to START charging | 0.23 |
 | PRICE_STOP | Price (EUR/kWh) to STOP charging | 0.26 |
-| MONTHS | Months to allow loading (comma-separated) | 10,11,12,01,02,03 |
-| START_HOUR | Start hour for loading window | 1 |
-| STOP_HOUR | Stop hour for loading window | 4 |
+| MONTHS | Months allowed for charging (comma-separated) | 10,11,12,01,02,03 |
+| START_HOUR | Start hour for charging window | 1 |
+| STOP_HOUR | Stop hour for charging window | 4 |
 
 Example:
 ```
@@ -50,5 +50,5 @@ docker run -d --restart always \
   -e PRICE_START=0.23 \
   -e PRICE_STOP=0.26 \
   -e MONTHS=10,11,12,01,02,03 \
-  --name tibbergoodweloading ghcr.io/robertdiers/tibber-goodwe-charge:1.0.0
+  --name tibbergoodwecharge ghcr.io/robertdiers/tibber-goodwe-charge:1.0.0
 ```
