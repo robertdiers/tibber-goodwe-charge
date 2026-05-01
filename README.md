@@ -8,7 +8,7 @@ plaese check config in tibber-goodwe-charge.ini file, could be overridden by Doc
 
 ### Tibber API
 
-How to get PAT? (personal eccess token)
+How to get PAT? (personal access token)
 
 Login at https://developer.tibber.com and you get one.
 
