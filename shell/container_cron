@@ -1,1 +1,2 @@
-*/15 * * * * . $HOME/.profile; /app/tibber-goodwe-charge.sh > /proc/1/fd/1 2>/proc/1/fd/2
+# need to run more often than 15 min, as it can load target SOC + x min
+*/5 * * * * . $HOME/.profile; /app/tibber-goodwe-charge.sh > /proc/1/fd/1 2>/proc/1/fd/2
