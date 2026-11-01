@@ -110,6 +110,8 @@ docker run -d --restart always \
   (depth of discharge) setting of the inverter.
 - The GoodWe dongle usually listens on **UDP** port 8899, not TCP. The script therefore
   checks availability by an actual protocol connection instead of a TCP port check.
+- The cron wrapper waits a random 0–10 seconds before each poll. This reduces collisions
+  when other local tools (e.g. Home Assistant) read the same dongle.
 
 ### Testing an inverter
 
