@@ -86,7 +86,7 @@ docker run -d --restart always \
   -e MONTHS=10,11,12,01,02,03 \
   -e START_HOUR=1 \
   -e STOP_HOUR=4 \
-  --name tibbergoodwecharge ghcr.io/robertdiers/tibber-goodwe-charge:1.1.0
+  --name tibbergoodwecharge ghcr.io/robertdiers/tibber-goodwe-charge:RELEASE
 ```
 
 ### ES family notes (e.g. GW5048D-ES)
