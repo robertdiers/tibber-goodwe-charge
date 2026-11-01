@@ -1,24 +1,11 @@
 #!/usr/bin/env python
 
 from datetime import datetime
+import asyncio
 import requests
-import socket
 import goodwe
 
 import Config
-
-
-def is_valid_ip(ip):
-    if not ip or len(str(ip).strip()) == 0:
-        return False
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(3)
-        result = sock.connect_ex((str(ip), 8899))
-        sock.close()
-        return result == 0
-    except Exception:
-        return False
 
 
 def read_tibber_data(home_id, pat):
@@ -73,11 +60,49 @@ def read_tibber_data(home_id, pat):
     return None
 
 
-async def start_loading_async(inverter_ip):
+def _connect(inverter_ip, inverter_family=None):
+    # family=None lets the library detect the inverter (ET/EH/BT/BH, ES/EM/BP, DT/...)
+    # a few extra retries help with the sometimes flaky Wi-Fi/LAN dongle
+    return goodwe.connect(
+        inverter_ip,
+        family=inverter_family or None,
+        timeout=2,
+        retries=5,
+    )
+
+
+async def _read_operation_mode(inverter):
+    mode = await inverter.get_operation_mode()
+    if mode is None:
+        # Some ES devices return an unknown work_mode value on the first read
+        mode = await inverter.get_operation_mode()
+    return mode
+
+
+def _supports_target_soc(inverter):
+    """Answer whether the inverter can store a target SOC in its eco mode.
+
+    EcoMode V1 (older firmware) accepts eco_mode_soc in the library API but
+    silently ignores it and charges up to the BMS limit. goodwe 0.4.10 exposes
+    this via a method on ES/EM/BP and a flag on ET/EH/BT/BH.
+    """
+    checker = getattr(inverter, "_supports_eco_mode_v2", None)
+    if callable(checker):
+        return bool(checker())
+    return bool(getattr(inverter, "_has_eco_mode_v2", False))
+
+
+async def start_loading_async(inverter_ip, inverter_family=None,
+                              charge_power=100, target_soc=100):
     try:
-        inverter = await goodwe.connect(inverter_ip)
-        await inverter.set_operation_mode(goodwe.inverter.OperationMode.ECO_CHARGE)
-        log_stmt = "Goodwe: Set to ECO_CHARGE mode (battery charging)"
+        inverter = await _connect(inverter_ip, inverter_family)
+        await inverter.set_operation_mode(
+            goodwe.OperationMode.ECO_CHARGE,
+            eco_mode_power=charge_power,
+            eco_mode_soc=target_soc,
+        )
+        log_stmt = (f"Goodwe: Set to ECO_CHARGE mode "
+                    f"(power={charge_power}%, target SOC={target_soc}%)")
         print(datetime.now().strftime("%d/%m/%Y %H:%M:%S") + " " + log_stmt)
         return True
     except Exception as ex:
@@ -85,15 +110,17 @@ async def start_loading_async(inverter_ip):
         return False
 
 
-def start_loading(inverter_ip):
-    import asyncio
-    return asyncio.run(start_loading_async(inverter_ip))
+def start_loading(inverter_ip, inverter_family=None,
+                  charge_power=100, target_soc=100):
+    return asyncio.run(start_loading_async(
+        inverter_ip, inverter_family, charge_power, target_soc
+    ))
 
 
-async def stop_loading_async(inverter_ip):
+async def stop_loading_async(inverter_ip, inverter_family=None):
     try:
-        inverter = await goodwe.connect(inverter_ip)
-        await inverter.set_operation_mode(goodwe.inverter.OperationMode.GENERAL)
+        inverter = await _connect(inverter_ip, inverter_family)
+        await inverter.set_operation_mode(goodwe.OperationMode.GENERAL)
         log_stmt = "Goodwe: Set to GENERAL mode (normal operation)"
         print(datetime.now().strftime("%d/%m/%Y %H:%M:%S") + " " + log_stmt)
         return True
@@ -102,25 +129,50 @@ async def stop_loading_async(inverter_ip):
         return False
 
 
-def stop_loading(inverter_ip):
-    import asyncio
-    return asyncio.run(stop_loading_async(inverter_ip))
+def stop_loading(inverter_ip, inverter_family=None):
+    return asyncio.run(stop_loading_async(inverter_ip, inverter_family))
 
 
-async def get_inverter_status_async(inverter_ip):
+async def get_inverter_status_async(inverter_ip, inverter_family=None):
     try:
-        inverter = await goodwe.connect(inverter_ip)
-        operation_mode = await inverter.get_operation_mode()
+        inverter = await _connect(inverter_ip, inverter_family)
+        supported_modes = [
+            mode.name
+            for mode in await inverter.get_operation_modes(include_emulated=True)
+        ]
+        eco_charge_supported = "ECO_CHARGE" in supported_modes
+        target_soc_supported = _supports_target_soc(inverter)
+
+        # DT/MS/NS/XS do not implement get_operation_mode(); skip it there so
+        # that the status is still readable and the caller can disable writes.
+        operation_mode = None
+        if eco_charge_supported:
+            operation_mode = await _read_operation_mode(inverter)
+
         runtime_data = await inverter.read_runtime_data()
 
+        load_power = runtime_data.get("pload")
+        if load_power is None:
+            # ET/EH/BT/BH publish the load as house_consumption instead
+            load_power = runtime_data.get("house_consumption")
+
         status = {
-            "operation_mode": operation_mode.name,
+            "model_name": inverter.model_name,
+            "serial_number": inverter.serial_number,
+            "firmware": inverter.firmware,
+            "supported_modes": supported_modes,
+            "eco_charge_supported": eco_charge_supported,
+            "target_soc_supported": target_soc_supported,
+            "operation_mode": operation_mode.name if operation_mode is not None else None,
             "work_mode": runtime_data.get("work_mode"),
             "work_mode_label": runtime_data.get("work_mode_label"),
             "battery_mode": runtime_data.get("battery_mode"),
             "battery_mode_label": runtime_data.get("battery_mode_label"),
             "battery_soc": runtime_data.get("battery_soc"),
-            "inverter": inverter
+            "pv_power": runtime_data.get("ppv"),
+            "battery_power": runtime_data.get("pbattery1"),
+            "grid_power": runtime_data.get("pgrid"),
+            "load_power": load_power,
         }
 
         # normal output
@@ -129,7 +181,10 @@ async def get_inverter_status_async(inverter_ip):
         log_stmt = (f"Goodwe: operation_mode={status['operation_mode']}, "
                     f"work_mode={status['work_mode_label']}, "
                     f"battery={status['battery_mode_label']}, "
-                    f"soc={status['battery_soc']}%")
+                    f"soc={status['battery_soc']}%, "
+                    f"pv={status['pv_power']}W, "
+                    f"battery={status['battery_power']}W, "
+                    f"grid={status['grid_power']}W")
         print(datetime.now().strftime("%d/%m/%Y %H:%M:%S") + " " + log_stmt)
         return status
 
@@ -138,15 +193,50 @@ async def get_inverter_status_async(inverter_ip):
         return None
 
 
-def get_inverter_status(inverter_ip):
-    import asyncio
-    return asyncio.run(get_inverter_status_async(inverter_ip))
+def get_inverter_status(inverter_ip, inverter_family=None):
+    return asyncio.run(get_inverter_status_async(inverter_ip, inverter_family))
 
 
-if __name__ == "__main__":
+def is_inverter_configured(conf):
+    return bool(conf.get("inverter_ip")) and len(str(conf["inverter_ip"]).strip()) > 0
+
+
+def calculate_should_load(tibber_total, now, conf, operation_mode):
+    """Decide whether the inverter should charge. Side-effect free for testing.
+
+    While the price is cheap and we are inside the month/hour window the inverter
+    stays in ECO_CHARGE, even after the target SOC is reached. In that mode the ES
+    battery does not discharge and the grid covers the load, so the battery is kept
+    for the expensive hours. price_start enters, price_stop exits (hysteresis).
+    """
+    operation_mode = operation_mode or ""
+
+    # only during the configured months
+    if now.month not in conf["months"]:
+        return 0
+
+    # only during the configured time of the day
+    if not (conf["start_hour"] <= now.hour < conf["stop_hour"]):
+        return 0
+
+    # Start charging on a cheap price
+    if tibber_total <= conf["price_start"]:
+        return 1
+
+    # Keep charging until the price rises above price_stop
+    if tibber_total <= conf["price_stop"] and "ECO_CHARGE" in operation_mode:
+        return 1
+
+    return 0
+
+
+def run():
     # print(datetime.now().strftime("%d/%m/%Y %H:%M:%S") + " START #####")
     try:
         conf = Config.read()
+        if not conf:
+            print(datetime.now().strftime("%d/%m/%Y %H:%M:%S") + " no valid config")
+            exit(1)
 
         # read Tibber API to get the actual price predictions
         tibber_data = read_tibber_data(conf["home_id"], conf["pat"])
@@ -156,58 +246,69 @@ if __name__ == "__main__":
             print(datetime.now().strftime("%d/%m/%Y %H:%M:%S") + " no tibber data")
             exit(1)
 
-        # check if inverter
-        is_inverter_configured_and_available = (
-            conf.get("inverter_ip") and
-            len(str(conf["inverter_ip"]).strip()) > 0 and
-            is_valid_ip(conf["inverter_ip"])
+        # check the inverter: a real protocol connection is the only reliable test
+        # (the GoodWe dongle usually does not listen on TCP port 8899)
+        inverter_status = None
+        if is_inverter_configured(conf):
+            inverter_status = get_inverter_status(
+                conf["inverter_ip"], conf.get("inverter_family")
+            )
+        is_inverter_configured_and_available = inverter_status is not None
+        eco_charge_supported = bool(
+            inverter_status and inverter_status.get("eco_charge_supported")
+        )
+        target_soc_supported = bool(
+            inverter_status and inverter_status.get("target_soc_supported")
         )
 
-        # read the actual inverter status
-        if is_inverter_configured_and_available:
-            inverter_status = get_inverter_status(conf["inverter_ip"])
-
         # we should calculate as flag and decide what to do
-        should_load = 0
-
-        # actual data
         now = datetime.now()
-        actual_month_number = now.month  # 1 to 12 for Jan to Dec
-        actual_hour = now.hour  # 0 to 23
 
-        # if price is negative - full load - but at these times the batteries are already full...
-        if tibber_data["total"] < 0:
-            # full load we can earn money
+        # target SOC written into the inverter's eco mode schedule. With EcoMode V2
+        # firmware the inverter stops grid charging at this level, but it stays in
+        # ECO_CHARGE (no discharge) until the price rises or the window ends.
+        target_soc = max(0, min(100, int(round(100 * conf["target_soc"]))))
+
+        should_load = 0
+        if is_inverter_configured_and_available:
+            operation_mode = inverter_status.get("operation_mode") or ""
+            battery_soc = inverter_status.get("battery_soc")
             print(datetime.now().strftime("%d/%m/%Y %H:%M:%S") +
-                  f" negative price: {tibber_data['total']}")
-        else:
-            # we need to pay for energy from outside - need to decide if we should load or not
-            # check the correct month - only during winter times
-            if actual_month_number in conf["months"]:
-                # check the actual time of the day
-                if actual_hour >= conf["start_hour"] and actual_hour < conf["stop_hour"]:
-                    # check the actual price for energy
-                    if is_inverter_configured_and_available:
-                        print(datetime.now().strftime("%d/%m/%Y %H:%M:%S") +
-                              f" price={tibber_data['total']}, SOC={inverter_status['battery_soc']}%")
-                        # Start charging: price <= price_start AND SOC < threshold
-                        if tibber_data["total"] <= conf["price_start"]:
-                            if inverter_status['battery_soc'] <= (100 * conf["battery_soc_start"]):
-                                should_load = 1
-                        # Keep charging: price <= price_stop AND SOC < threshold
-                        if (tibber_data["total"] <= conf["price_stop"] and
-                                'ECO_CHARGE' in inverter_status['operation_mode']):
-                            if inverter_status['battery_soc'] <= (100 * conf["battery_soc_stop"]):
-                                should_load = 1
+                  f" price={tibber_data['total']}, SOC={battery_soc}%, "
+                  f"mode={operation_mode}, "
+                  f"target_soc_supported={target_soc_supported}")
+            if not eco_charge_supported:
+                print(datetime.now().strftime("%d/%m/%Y %H:%M:%S") +
+                      " Goodwe: ECO_CHARGE is not supported by this inverter "
+                      f"(modes={inverter_status.get('supported_modes')}); "
+                      "mode control disabled")
+            else:
+                should_load = calculate_should_load(
+                    tibber_data["total"], now, conf, operation_mode
+                )
 
         # send operating mode to inverter - this is a writing into the flash - to NOT write it all the time
-        if is_inverter_configured_and_available:
-            if should_load == 1 and 'GENERAL' in inverter_status['operation_mode']:
-                start_loading(conf["inverter_ip"])
-            if should_load == 0 and 'ECO_CHARGE' in inverter_status['operation_mode']:
-                stop_loading(conf["inverter_ip"])
+        if eco_charge_supported:
+            operation_mode = inverter_status.get("operation_mode") or ""
+            if should_load == 1 and 'GENERAL' in operation_mode:
+                if not target_soc_supported and target_soc < 100:
+                    print(datetime.now().strftime("%d/%m/%Y %H:%M:%S") +
+                          " WARN: EcoMode V1 detected - the inverter ignores "
+                          f"target SOC {target_soc}% and charges to the BMS limit")
+                start_loading(
+                    conf["inverter_ip"],
+                    conf.get("inverter_family"),
+                    conf["charge_power"],
+                    target_soc,
+                )
+            if should_load == 0 and 'ECO_CHARGE' in operation_mode:
+                stop_loading(conf["inverter_ip"], conf.get("inverter_family"))
 
         # print(datetime.now().strftime("%d/%m/%Y %H:%M:%S") + " END #####")
 
     except Exception as ex:
         print("ERROR: ", ex)
+
+
+if __name__ == "__main__":
+    run()
