@@ -1,2 +1,3 @@
-# need to run more often than 15 min, as it can load target SOC + x min
-*/5 * * * * . $HOME/.profile; /app/tibber-goodwe-charge.sh > /proc/1/fd/1 2>/proc/1/fd/2
+# 15 min is enough: Tibber prices are hourly and the inverter stops at the
+# target SOC itself. The script holds ECO_CHARGE until price/time changes.
+*/15 * * * * . $HOME/.profile; /app/tibber-goodwe-charge.sh > /proc/1/fd/1 2>/proc/1/fd/2
